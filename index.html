@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CRE Tracker — Dreck</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏢</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Sora:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+    --bg: #0d0d14;
+    --surface: #13131f;
+    --surface2: #1a1a2e;
+    --border: #2a2a3a;
+    --text: #e0e0e8;
+    --text-dim: #8888a8;
+    --gold: #d4aa4f;
+    --gold-dim: #a8863f;
+    /* Value tiers */
+    --tier-unknown: #5588cc;
+    --tier-2m: #d4aa4f;
+    --tier-5m: #e87d2f;
+    --tier-10m: #e04040;
+    --tier-25m: #ff2d8a;
+}
+body {
+    background: var(--bg); color: var(--text);
+    font-family: 'Sora', sans-serif; font-size: 14px;
+    min-height: 100vh;
+    background-image:
+        radial-gradient(ellipse 600px 400px at 15% 20%, rgba(212,170,79,0.04) 0%, transparent 70%),
+        radial-gradient(ellipse 500px 500px at 85% 70%, rgba(88,88,204,0.03) 0%, transparent 70%);
+}
+
+/* ── Header ── */
+.header {
+    padding: 24px 32px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: flex-end; justify-content: space-between;
+    flex-wrap: wrap; gap: 16px;
+}
+.header h1 {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 32px; font-weight: 600; color: var(--gold);
+    letter-spacing: 0.5px;
+}
+.header h1 span { color: var(--text-dim); font-size: 18px; font-weight: 400; margin-left: 8px; }
+.header-meta {
+    font-size: 12px; color: var(--text-dim);
+    font-family: 'JetBrains Mono', monospace;
+    text-align: right;
+}
+
+/* ── Controls ── */
+.controls {
+    padding: 16px 32px;
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    border-bottom: 1px solid var(--border);
+}
+.control-group { display: flex; align-items: center; gap: 8px; }
+.control-group label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+input[type="date"], select {
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--text); padding: 8px 12px; border-radius: 6px;
+    font-family: 'JetBrains Mono', monospace; font-size: 13px;
+}
+input[type="date"]:focus, select:focus { outline: none; border-color: var(--gold); }
+.btn {
+    padding: 8px 16px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text); cursor: pointer;
+    font-family: 'Sora', sans-serif; font-size: 13px;
+    transition: all 0.2s;
+}
+.btn:hover { border-color: var(--gold); color: var(--gold); }
+.btn.active { background: var(--gold); color: var(--bg); border-color: var(--gold); font-weight: 600; }
+.spacer { flex: 1; }
+
+/* ── Stats Bar ── */
+.stats-bar {
+    padding: 16px 32px;
+    display: flex; gap: 24px; flex-wrap: wrap;
+    border-bottom: 1px solid var(--border);
+}
+.stat {
+    display: flex; flex-direction: column; gap: 2px;
+}
+.stat-value {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 28px; font-weight: 700; color: var(--gold);
+    line-height: 1;
+}
+.stat-label {
+    font-size: 11px; color: var(--text-dim); text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* ── Map ── */
+#map-container {
+    height: 500px; position: relative;
+    border-bottom: 1px solid var(--border);
+}
+#map { height: 100%; width: 100%; }
+.leaflet-container { background: var(--bg) !important; }
+
+/* Donut cluster markers */
+.donut-cluster {
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 50%; position: relative;
+}
+.donut-cluster canvas { position: absolute; top: 0; left: 0; }
+.donut-label {
+    position: relative; z-index: 1;
+    font-family: 'Sora', sans-serif; font-weight: 700;
+    color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+    font-size: 13px;
+}
+
+/* Individual markers */
+.cre-marker {
+    border-radius: 50%; border: 2px solid rgba(255,255,255,0.3);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Sora', sans-serif; font-weight: 600;
+    color: #fff; font-size: 10px;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+}
+
+/* Popups */
+.leaflet-popup-content-wrapper {
+    background: var(--surface) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 10px !important;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5) !important;
+}
+.leaflet-popup-content { color: var(--text) !important; font-family: 'Sora', sans-serif !important; font-size: 13px !important; margin: 14px !important; }
+.leaflet-popup-tip { background: var(--surface) !important; border: 1px solid var(--border) !important; }
+.popup-price { font-family: 'Cormorant Garamond', serif; font-size: 24px; font-weight: 700; color: var(--gold); }
+.popup-addr { font-size: 14px; font-weight: 500; margin: 4px 0; }
+.popup-meta { font-size: 12px; color: var(--text-dim); margin: 2px 0; }
+.popup-meta a { color: var(--gold); text-decoration: none; }
+.popup-meta a:hover { text-decoration: underline; }
+.popup-owner { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-dim); margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border); }
+
+/* ── Legend ── */
+.legend {
+    position: absolute; bottom: 20px; right: 20px; z-index: 1000;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px 16px;
+    font-size: 12px;
+}
+.legend-title { font-weight: 600; margin-bottom: 8px; color: var(--text); }
+.legend-item { display: flex; align-items: center; gap: 8px; margin: 4px 0; color: var(--text-dim); }
+.legend-dot { width: 12px; height: 12px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.2); flex-shrink: 0; }
+
+/* ── Table ── */
+.table-container {
+    padding: 0 32px 32px;
+    overflow-x: auto;
+}
+.table-header {
+    padding: 20px 0 12px;
+    display: flex; align-items: center; justify-content: space-between;
+}
+.table-header h2 {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 22px; font-weight: 600; color: var(--text);
+}
+.table-count { font-size: 12px; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; }
+table {
+    width: 100%; border-collapse: collapse;
+    font-size: 13px;
+}
+thead th {
+    background: var(--surface2); color: var(--text-dim);
+    padding: 10px 14px; text-align: left;
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+    font-weight: 500; border-bottom: 1px solid var(--border);
+    cursor: pointer; user-select: none; white-space: nowrap;
+    position: sticky; top: 0;
+}
+thead th:hover { color: var(--gold); }
+thead th.sorted { color: var(--gold); }
+thead th .sort-arrow { margin-left: 4px; font-size: 10px; }
+tbody tr {
+    border-bottom: 1px solid rgba(42,42,58,0.5);
+    transition: background 0.15s;
+}
+tbody tr:hover { background: rgba(212,170,79,0.05); }
+tbody td { padding: 10px 14px; vertical-align: top; }
+td.price {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 500; white-space: nowrap;
+}
+td.address { font-weight: 500; }
+td.type { color: var(--text-dim); font-size: 12px; }
+td.date { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-dim); }
+td.owner { font-size: 12px; color: var(--text-dim); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tier-dot {
+    display: inline-block; width: 8px; height: 8px;
+    border-radius: 50%; margin-right: 6px; vertical-align: middle;
+}
+.maps-link { color: var(--text-dim); text-decoration: none; font-size: 11px; }
+.maps-link:hover { color: var(--gold); }
+
+/* ── Loading ── */
+.loading {
+    display: flex; align-items: center; justify-content: center;
+    height: 200px; color: var(--text-dim);
+    font-family: 'JetBrains Mono', monospace; font-size: 13px;
+}
+.loading::after {
+    content: ''; width: 20px; height: 20px;
+    border: 2px solid var(--border); border-top-color: var(--gold);
+    border-radius: 50%; margin-left: 12px;
+    animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+    .header, .controls, .stats-bar, .table-container { padding-left: 16px; padding-right: 16px; }
+    .header h1 { font-size: 24px; }
+    .stat-value { font-size: 22px; }
+    #map-container { height: 350px; }
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+    <h1>CRE Transactions<span>Denver Metro</span></h1>
+    <div class="header-meta">
+        <div id="last-updated"></div>
+        <div id="data-range"></div>
+    </div>
+</div>
+
+<div class="controls">
+    <div class="control-group">
+        <label>From</label>
+        <input type="date" id="date-from">
+    </div>
+    <div class="control-group">
+        <label>To</label>
+        <input type="date" id="date-to">
+    </div>
+    <div class="control-group">
+        <label>Min Price</label>
+        <select id="min-price">
+            <option value="2000000">$2M+</option>
+            <option value="5000000">$5M+</option>
+            <option value="10000000">$10M+</option>
+            <option value="25000000">$25M+</option>
+        </select>
+    </div>
+    <div class="control-group">
+        <label>Type</label>
+        <select id="type-filter">
+            <option value="all">All CRE</option>
+            <option value="commercial">Commercial</option>
+            <option value="industrial">Industrial</option>
+            <option value="multifamily">Multifamily</option>
+            <option value="mixed">Mixed Use</option>
+            <option value="land">Vacant Land</option>
+            <option value="luxury">Luxury Residential</option>
+        </select>
+    </div>
+    <div class="spacer"></div>
+    <button class="btn active" id="btn-map" onclick="toggleView('map')">Map</button>
+    <button class="btn" id="btn-table" onclick="toggleView('table')">Table</button>
+</div>
+
+<div class="stats-bar">
+    <div class="stat"><div class="stat-value" id="stat-count">—</div><div class="stat-label">Transactions</div></div>
+    <div class="stat"><div class="stat-value" id="stat-volume">—</div><div class="stat-label">Total Volume</div></div>
+    <div class="stat"><div class="stat-value" id="stat-avg">—</div><div class="stat-label">Avg Price</div></div>
+    <div class="stat"><div class="stat-value" id="stat-median">—</div><div class="stat-label">Median Price</div></div>
+    <div class="stat"><div class="stat-value" id="stat-largest">—</div><div class="stat-label">Largest Deal</div></div>
+</div>
+
+<div id="map-container">
+    <div id="map"></div>
+    <div class="legend">
+        <div class="legend-title">Sale Price</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--tier-2m)"></div>$2M – $5M</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--tier-5m)"></div>$5M – $10M</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--tier-10m)"></div>$10M – $25M</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--tier-25m)"></div>$25M+</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--tier-unknown)"></div>Unknown</div>
+    </div>
+</div>
+
+<div class="table-container">
+    <div class="table-header">
+        <h2>Transaction Log</h2>
+        <div class="table-count" id="table-count"></div>
+    </div>
+    <table id="txn-table">
+        <thead>
+            <tr>
+                <th data-sort="SALE_DATE" class="sorted">Date <span class="sort-arrow">▼</span></th>
+                <th data-sort="SALE_PRICE">Price</th>
+                <th data-sort="SITUS_ADDRESS_LINE1">Address</th>
+                <th data-sort="D_CLASS_CN">Type</th>
+                <th data-sort="OWNER_NAME">Buyer</th>
+                <th data-sort="APPRAISED_TOTAL_VALUE">Appraised</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody id="txn-body"></tbody>
+    </table>
+</div>
+
+<script src="auth.js"></script>
+<script>
+// ── Value tier helpers ──
+const TIERS = [
+    { min: 25_000_000, color: '#ff2d8a', label: '$25M+' },
+    { min: 10_000_000, color: '#e04040', label: '$10M–$25M' },
+    { min: 5_000_000,  color: '#e87d2f', label: '$5M–$10M' },
+    { min: 2_000_000,  color: '#d4aa4f', label: '$2M–$5M' },
+    { min: 0,          color: '#5588cc', label: 'Unknown' },
+];
+
+function getTier(price) {
+    if (!price || price <= 0) return TIERS[TIERS.length - 1];
+    return TIERS.find(t => price >= t.min) || TIERS[TIERS.length - 1];
+}
+
+function fmtPrice(n) {
+    if (!n) return '—';
+    if (n >= 1_000_000) return '$' + (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
+    if (n >= 1_000) return '$' + (n / 1_000).toFixed(0) + 'K';
+    return '$' + n.toLocaleString();
+}
+
+function fmtPriceFull(n) {
+    if (!n) return '—';
+    return '$' + n.toLocaleString();
+}
+
+function fmtDate(ts) {
+    if (!ts) return '—';
+    const d = new Date(ts);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function fmtDateISO(ts) {
+    if (!ts) return '';
+    return new Date(ts).toISOString().split('T')[0];
+}
+
+function typeCategory(d_class_cn) {
+    if (!d_class_cn) return 'unknown';
+    if (d_class_cn.startsWith('COMMERCIAL')) return 'commercial';
+    if (d_class_cn.startsWith('INDUSTRIAL')) return 'industrial';
+    if (d_class_cn.includes('MIXED USE')) return 'mixed';
+    if (d_class_cn.includes('MULTI UNIT') || d_class_cn.includes('APARTMENT') ||
+        d_class_cn.includes('NURSING') || d_class_cn.includes('SENIOR')) return 'multifamily';
+    if (d_class_cn.includes('VACANT LAND')) return 'land';
+    return 'luxury';
+}
+
+// ── State ──
+let allData = [];
+let filtered = [];
+let map, clusterGroup;
+let currentSort = { field: 'SALE_DATE', dir: 'desc' };
+
+// ── Map setup ──
+function initMap() {
+    map = L.map('map', {
+        center: [39.74, -104.95],
+        zoom: 11,
+        zoomControl: true,
+    });
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; <a href="https://carto.com/">CARTO</a>',
+        subdomains: 'abcd', maxZoom: 19
+    }).addTo(map);
+
+    clusterGroup = L.markerClusterGroup({
+        maxClusterRadius: 60,
+        spiderfyOnMaxZoom: true,
+        showCoverageOnHover: false,
+        iconCreateFunction: createDonutCluster
+    });
+    map.addLayer(clusterGroup);
+}
+
+function createDonutCluster(cluster) {
+    const markers = cluster.getAllChildMarkers();
+    const counts = {};
+    TIERS.forEach(t => counts[t.color] = 0);
+    markers.forEach(m => {
+        const tier = getTier(m.options.salePrice);
+        counts[tier.color] = (counts[tier.color] || 0) + 1;
+    });
+
+    const total = markers.length;
+    const size = Math.min(24 + total * 2, 56);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = size; canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    const cx = size / 2, cy = size / 2, r = size / 2 - 2;
+
+    // Draw donut
+    let startAngle = -Math.PI / 2;
+    TIERS.forEach(tier => {
+        const count = counts[tier.color] || 0;
+        if (count === 0) return;
+        const sliceAngle = (count / total) * 2 * Math.PI;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, startAngle, startAngle + sliceAngle);
+        ctx.arc(cx, cy, r * 0.55, startAngle + sliceAngle, startAngle, true);
+        ctx.closePath();
+        ctx.fillStyle = tier.color;
+        ctx.fill();
+        startAngle += sliceAngle;
+    });
+
+    // Center fill
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 0.5, 0, 2 * Math.PI);
+    ctx.fillStyle = 'rgba(13,13,20,0.85)';
+    ctx.fill();
+
+    const html = `<div class="donut-cluster" style="width:${size}px;height:${size}px">
+        <canvas width="${size}" height="${size}"></canvas>
+        <div class="donut-label">${total}</div>
+    </div>`;
+
+    const icon = L.divIcon({
+        html, className: '', iconSize: [size, size], iconAnchor: [size/2, size/2]
+    });
+
+    // Redraw canvas after DOM insert
+    setTimeout(() => {
+        const el = cluster._icon;
+        if (!el) return;
+        const c = el.querySelector('canvas');
+        if (!c) return;
+        const ctx2 = c.getContext('2d');
+        ctx2.drawImage(canvas, 0, 0);
+    }, 0);
+
+    return icon;
+}
+
+function updateMap() {
+    clusterGroup.clearLayers();
+    filtered.forEach(t => {
+        if (!t.lat || !t.lng) return;
+        const tier = getTier(t.SALE_PRICE);
+        const size = 18;
+        const icon = L.divIcon({
+            html: `<div class="cre-marker" style="width:${size}px;height:${size}px;background:${tier.color}"></div>`,
+            className: '', iconSize: [size, size], iconAnchor: [size/2, size/2]
+        });
+
+        const addr = t.SITUS_ADDRESS_LINE1 || 'Unknown';
+        const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addr + ', Denver, CO')}`;
+        const streetViewUrl = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${t.lat},${t.lng}`;
+
+        let popup = `<div class="popup-price">${fmtPriceFull(t.SALE_PRICE)}</div>
+            <div class="popup-addr">${addr}</div>
+            <div class="popup-meta">${t.D_CLASS_CN || '—'}</div>
+            <div class="popup-meta">Sale: ${fmtDate(t.SALE_DATE)}</div>`;
+        if (t.APPRAISED_TOTAL_VALUE)
+            popup += `<div class="popup-meta">Appraised: ${fmtPriceFull(t.APPRAISED_TOTAL_VALUE)}</div>`;
+        if (t.COM_GROSS_AREA)
+            popup += `<div class="popup-meta">${t.COM_GROSS_AREA.toLocaleString()} sq ft gross</div>`;
+        popup += `<div class="popup-meta"><a href="${mapsUrl}" target="_blank">Google Maps</a> · <a href="${streetViewUrl}" target="_blank">Street View</a></div>`;
+        popup += `<div class="popup-owner">${t.OWNER_NAME || '—'}</div>`;
+        if (t.prev_owner && t.prev_owner !== t.OWNER_NAME)
+            popup += `<div class="popup-owner" style="color:#6a6a8a">Previously: ${t.prev_owner}</div>`;
+
+        const marker = L.marker([t.lat, t.lng], { icon, salePrice: t.SALE_PRICE });
+        marker.bindPopup(popup, { maxWidth: 320 });
+        clusterGroup.addLayer(marker);
+    });
+
+    if (filtered.length > 0) {
+        const bounds = clusterGroup.getBounds();
+        if (bounds.isValid()) map.fitBounds(bounds, { padding: [40, 40] });
+    }
+}
+
+// ── Table ──
+function updateTable() {
+    const tbody = document.getElementById('txn-body');
+    const sorted = [...filtered].sort((a, b) => {
+        let va = a[currentSort.field], vb = b[currentSort.field];
+        if (va == null) va = 0; if (vb == null) vb = 0;
+        if (typeof va === 'string') { va = va.toLowerCase(); vb = (vb || '').toLowerCase(); }
+        if (va < vb) return currentSort.dir === 'asc' ? -1 : 1;
+        if (va > vb) return currentSort.dir === 'asc' ? 1 : -1;
+        return 0;
+    });
+
+    tbody.innerHTML = sorted.map(t => {
+        const tier = getTier(t.SALE_PRICE);
+        const addr = t.SITUS_ADDRESS_LINE1 || '—';
+        const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addr + ', Denver, CO')}`;
+        return `<tr>
+            <td class="date">${fmtDate(t.SALE_DATE)}</td>
+            <td class="price"><span class="tier-dot" style="background:${tier.color}"></span>${fmtPriceFull(t.SALE_PRICE)}</td>
+            <td class="address">${addr}</td>
+            <td class="type">${t.D_CLASS_CN || '—'}</td>
+            <td class="owner" title="${t.OWNER_NAME || ''}">${t.OWNER_NAME || '—'}</td>
+            <td class="price" style="color:var(--text-dim)">${fmtPriceFull(t.APPRAISED_TOTAL_VALUE)}</td>
+            <td><a href="${mapsUrl}" target="_blank" class="maps-link">📍</a></td>
+        </tr>`;
+    }).join('');
+
+    document.getElementById('table-count').textContent = `${filtered.length} transactions`;
+
+    // Update sort indicators
+    document.querySelectorAll('#txn-table thead th').forEach(th => {
+        th.classList.remove('sorted');
+        const arrow = th.querySelector('.sort-arrow');
+        if (arrow) arrow.textContent = '';
+        if (th.dataset.sort === currentSort.field) {
+            th.classList.add('sorted');
+            if (arrow) arrow.textContent = currentSort.dir === 'asc' ? '▲' : '▼';
+        }
+    });
+}
+
+// ── Stats ──
+function updateStats() {
+    const prices = filtered.map(t => t.SALE_PRICE || 0).filter(p => p > 0);
+    prices.sort((a, b) => a - b);
+    const count = filtered.length;
+    const volume = prices.reduce((s, p) => s + p, 0);
+    const avg = count ? volume / count : 0;
+    const median = count ? prices[Math.floor(count / 2)] : 0;
+    const largest = prices.length ? prices[prices.length - 1] : 0;
+
+    document.getElementById('stat-count').textContent = count.toLocaleString();
+    document.getElementById('stat-volume').textContent = fmtPrice(volume);
+    document.getElementById('stat-avg').textContent = fmtPrice(avg);
+    document.getElementById('stat-median').textContent = fmtPrice(median);
+    document.getElementById('stat-largest').textContent = fmtPrice(largest);
+}
+
+// ── Filters ──
+function applyFilters() {
+    const dateFrom = document.getElementById('date-from').value;
+    const dateTo = document.getElementById('date-to').value;
+    const minPrice = parseInt(document.getElementById('min-price').value);
+    const typeFilter = document.getElementById('type-filter').value;
+
+    filtered = allData.filter(t => {
+        const price = t.SALE_PRICE || 0;
+        if (price < minPrice) return false;
+
+        if (dateFrom) {
+            const saleDate = fmtDateISO(t.SALE_DATE);
+            if (saleDate && saleDate < dateFrom) return false;
+        }
+        if (dateTo) {
+            const saleDate = fmtDateISO(t.SALE_DATE);
+            if (saleDate && saleDate > dateTo) return false;
+        }
+
+        if (typeFilter !== 'all') {
+            const cat = typeCategory(t.D_CLASS_CN);
+            if (cat !== typeFilter) return false;
+        }
+
+        return true;
+    });
+
+    updateStats();
+    updateMap();
+    updateTable();
+}
+
+// ── View toggle ──
+function toggleView(view) {
+    const mapC = document.getElementById('map-container');
+    const tableC = document.querySelector('.table-container');
+    document.getElementById('btn-map').classList.toggle('active', view === 'map');
+    document.getElementById('btn-table').classList.toggle('active', view === 'table');
+    mapC.style.display = view === 'map' ? 'block' : 'none';
+    if (view === 'map') setTimeout(() => map.invalidateSize(), 100);
+}
+
+// ── Sort ──
+document.querySelectorAll('#txn-table thead th[data-sort]').forEach(th => {
+    th.addEventListener('click', () => {
+        const field = th.dataset.sort;
+        if (currentSort.field === field) {
+            currentSort.dir = currentSort.dir === 'asc' ? 'desc' : 'asc';
+        } else {
+            currentSort = { field, dir: field === 'SALE_PRICE' || field === 'SALE_DATE' || field === 'APPRAISED_TOTAL_VALUE' ? 'desc' : 'asc' };
+        }
+        updateTable();
+    });
+});
+
+// ── Filter listeners ──
+['date-from', 'date-to', 'min-price', 'type-filter'].forEach(id => {
+    document.getElementById(id).addEventListener('change', applyFilters);
+});
+
+// ── Init ──
+window.onAuthSuccess = function() {
+    initMap();
+
+    fetch('cre-transactions.json')
+        .then(r => r.json())
+        .then(data => {
+            allData = data;
+
+            // Set date range defaults
+            const dates = data.map(t => t.SALE_DATE).filter(Boolean).sort();
+            if (dates.length) {
+                const earliest = fmtDateISO(dates[0]);
+                const latest = fmtDateISO(dates[dates.length - 1]);
+                document.getElementById('data-range').textContent = `${fmtDate(dates[0])} — ${fmtDate(dates[dates.length - 1])}`;
+            }
+
+            // Default: show last 12 months
+            const oneYearAgo = new Date();
+            oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+            document.getElementById('date-from').value = oneYearAgo.toISOString().split('T')[0];
+
+            document.getElementById('last-updated').textContent = `Last updated: ${new Date().toLocaleDateString()}`;
+
+            applyFilters();
+        })
+        .catch(err => {
+            console.error('Failed to load data:', err);
+            document.getElementById('txn-body').innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--text-dim)">No transaction data available yet. Run the scraper to populate.</td></tr>';
+        });
+};
+</script>
+</body>
+</html>
