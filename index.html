@@ -157,8 +157,8 @@ td.type{color:var(--text-dim);font-size:12px}
   </div>
 </div>
 
-<script src="https://businessden.github.io/Daily-dreck/auth.js"></script>
-<script>
+<script>document.addEventListener('DOMContentLoaded',()=>{if(window.onAuthSuccess)window.onAuthSuccess()});</script><script>
+  <script>
 const TIERS=[{min:25e6,color:'#ff2d8a'},{min:10e6,color:'#e04040'},{min:5e6,color:'#e87d2f'},{min:2e6,color:'#d4aa4f'},{min:0,color:'#5588cc'}];
 function getTier(p){if(!p||p<=0)return TIERS[4];return TIERS.find(t=>p>=t.min)||TIERS[4]}
 function fmtP(n){if(!n)return'—';if(n>=1e6)return'$'+(n/1e6).toFixed(1).replace(/\.0$/,'')+'M';if(n>=1e3)return'$'+(n/1e3).toFixed(0)+'K';return'$'+n.toLocaleString()}
